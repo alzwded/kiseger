@@ -255,8 +255,11 @@ LRESULT CALLBACK WindowProc(
                 default:
                     break;
                 case VK_SPACE:
-                    /*fallthrough*/(void)wParam;
+                    g_paused = !g_paused;
+                    InvalidateRect(hWnd, NULL, FALSE);
+                    return 0;
             }
+            break;
         case WM_LBUTTONUP:
             g_paused = !g_paused;
             InvalidateRect(hWnd, NULL, FALSE);
