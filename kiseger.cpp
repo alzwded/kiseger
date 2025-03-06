@@ -54,8 +54,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define STATE_RESET -30
 int g_state = 0;
 size_t g_statistics = 0;
+bool g_paused = false;
 bool g_debug = false;
-TCHAR g_txt[MAX_PATH+1];
+bool g_wroteToLogFile = false;
+HFONT g_hFont = NULL;
+TCHAR g_txt[MAX_PATH+1] = {(TCHAR)0};
 HWND hWnd = NULL;
 
 #define IDT_TIMER1 1001
@@ -78,6 +81,7 @@ static std::map<wchar_t, std::tuple<bool, std::wstring, std::function<void(LPWST
 
 static FILE* GetLogFile()
 {
+    g_wroteToLogFile = true;
     //GetTempFileName(_T("."), _T("jak"), 0, g_txt);
     //_tcscpy(g_txt, _T("winapp.log"));
 
@@ -218,39 +222,61 @@ LRESULT CALLBACK WindowProc(
     switch(uMsg)
     {
         case WM_CREATE:
+            g_paused = false;
+            g_statistics = 0;
             g_state = STATE_RESET;
             SetTimer(hwnd,
                     IDT_TIMER1,
                     1000,
                     (TIMERPROC) NULL);
+            g_hFont = CreateFont(24, FW_DONTCARE, FW_DONTCARE, FW_DONTCARE, FW_BOLD,
+                                        FALSE, FALSE, FALSE, ANSI_CHARSET,
+                                        OUT_DEVICE_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH,
+                                        _T("Courier New"));
+
             return 0;
         case WM_DESTROY:
             KillTimer(hWnd, IDT_TIMER1);
             if(g_state) KillTimer(hWnd, IDT_TIMER2);
+            DeleteObject(g_hFont);
+            if(!g_wroteToLogFile && *g_txt)
+            {
+                DeleteFile(g_txt);
+            }
             FreeConsole();
             PostQuitMessage(0);
             return 0;
         case WM_SIZE:
             InvalidateRect(hWnd, NULL, FALSE);
             break;
+        case WM_KEYUP:
+            switch(wParam)
+            {
+                default:
+                    break;
+                case VK_SPACE:
+                    /*fallthrough*/(void)wParam;
+            }
+        case WM_LBUTTONUP:
+            g_paused = !g_paused;
+            InvalidateRect(hWnd, NULL, FALSE);
+            return 0;
         case WM_PAINT:
             {
+                std::wstringstream text;
+                text << (g_paused ? _T("PAUSED ") : _T("")) << _T("state: ") << g_state << _T(" statistic(k)s: ") << g_statistics;
+                TCHAR* t = (TCHAR*)malloc((text.str().size() + 5) * sizeof(TCHAR));
+                memset(t, 0, (text.str().size() + 5) * sizeof(CHAR));
+                _tcscpy(t, text.str().c_str());
+
+                // Begining to pain
                 PAINTSTRUCT ps;
                 HDC hdc = BeginPaint(hwnd, &ps);
                 FillRect(hdc, &ps.rcPaint, (HBRUSH)(COLOR_WINDOW+1));
 
-                auto hFont = CreateFont(24, FW_DONTCARE, FW_DONTCARE, FW_DONTCARE, FW_BOLD,
-                                        FALSE, FALSE, FALSE, ANSI_CHARSET,
-                                        OUT_DEVICE_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH,
-                                        _T("Courier New"));
-                auto hOldFont = (HFONT) SelectObject(hdc, hFont); // <-- add this
+                auto hOldFont = (HFONT) SelectObject(hdc, g_hFont); // <-- add this
                 //SetTextColor(hdc, RGB(255, 0, 0));
 
-                std::wstringstream text;
-                text << _T("state: ") << g_state << _T(" statistic(k)s: ") << g_statistics;
-                TCHAR* t = (TCHAR*)malloc((text.str().size() + 5) * sizeof(TCHAR));
-                memset(t, 0, (text.str().size() + 5) * sizeof(CHAR));
-                _tcscpy(t, text.str().c_str());
                 RECT r;
                 BOOL b = GetClientRect(hWnd, &r);
                 DrawText(hdc,
@@ -259,18 +285,23 @@ LRESULT CALLBACK WindowProc(
                         &r,
                         DT_CENTER|DT_VCENTER|DT_SINGLELINE);
 
-
-                SelectObject(hdc, hOldFont); // <-- add this
-                DeleteObject(hFont);  //
+                SelectObject(hdc, hOldFont);
 
                 EndPaint(hwnd, &ps);
+                // Stopped painging
+
+                free(t);
             }
             return 0;
         case WM_TIMER:
             switch(wParam)
             {
                 case IDT_TIMER1:
-                    ++g_state;
+                    if(!g_paused)
+                    {
+                        ++g_state;
+                        InvalidateRect(hWnd, NULL, FALSE);
+                    }
                     if(g_state == 0)
                     {
                         ++g_statistics;
@@ -280,7 +311,6 @@ LRESULT CALLBACK WindowProc(
                                 50,
                                 (TIMERPROC) NULL);
                     }
-                    InvalidateRect(hWnd, NULL, FALSE);
                     return 0;
                 case IDT_TIMER2:
                     switch(g_state)
